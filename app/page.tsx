@@ -30,16 +30,7 @@ export default function Home() {
               </ButtonLink>
             </div>
 
-            <div className="mt-7">
-              <GlassCard accent="purple" className="p-5">
-                <div className="grid gap-3 md:grid-cols-4">
-                  <StatPill label="Players" value="20" />
-                  <StatPill label="Questions" value="20" />
-                  <StatPill label="Max pts" value="300" />
-                  <StatPill label="Per Q" value="80s" />
-                </div>
-              </GlassCard>
-            </div>
+           
 
             <div className="mt-8 text-center text-sm font-semibold text-white/55">
               Built for ages <span className="text-white/85">8–18</span>. Fast rounds, fair scoring, epic glory.
