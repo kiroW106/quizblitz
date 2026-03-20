@@ -51,13 +51,13 @@ export default function LobbyPage() {
 
   // Redirect player back to lobby if they refresh (using stored playerId)
   useEffect(() => {
-    if (isHost) return;
+    const hostFlag = localStorage.getItem(`host_${code}`);
+    if (hostFlag) return;
     const playerId = localStorage.getItem(`qb:playerId:${code}`);
     if (!playerId) {
-      // No player ID means they haven't joined yet — send to join page
       router.replace(`/join`);
     }
-  }, [code, isHost, router]);
+  }, [code, router]);
 
   // Load quiz and players
   useEffect(() => {
