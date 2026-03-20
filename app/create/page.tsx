@@ -135,7 +135,7 @@ export default function CreatePage() {
                   value={opt}
                   onClick={(e) => e.stopPropagation()}
                   onChange={(e) => handleOptionChange(i, e.target.value)}
-                  style={{ flex: 1, background: "transparent", border: "none", color: "white", fontSize: "14px", fontWeight: 700, fontFamily: "Nunito, sans-serif", outline: "none" }}
+                  style={{ flex: 1, background: "transparent", border: "none", color: "white", fontSize: "14px", fontWeight: 700, fontFamily: "Nunito, sans-serif", outline: "none", width: "0", minWidth: "0" }}
                 />
                 {current.correct === i && (
                   <span style={{ color: COLORS[i], fontSize: "11px", fontWeight: 900, letterSpacing: "1px", flexShrink: 0 }}>CORRECT</span>
