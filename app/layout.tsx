@@ -17,8 +17,8 @@ const nunito = Nunito({
 });
 
 export const metadata: Metadata = {
-  title: "QuizBlitz",
-  description: "KBC-style live multiplayer quiz game for students.",
+  title: "QuizBlitz — Live Quiz for Students",
+  description: "Host live quiz games for your students. Create a quiz, share a code, and compete in real time. Built for ages 8–18.",
 };
 
 export default function RootLayout({
