@@ -1,34 +1,27 @@
-import { createBrowserClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
-export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-function isProbablyValidUrl(url: string) {
-  return /^https?:\/\//i.test(url);
-}
-
-export function isSupabaseConfigured() {
-  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY && isProbablyValidUrl(SUPABASE_URL));
-}
-
-export function getSupabaseBrowserClient() {
-  if (typeof window === "undefined") return null;
-  if (!isSupabaseConfigured()) return null;
-  return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-}
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export type QuizQuestion = {
   question: string;
   options: [string, string, string, string];
-  correctIndex: 0 | 1 | 2 | 3;
+  correctIndex: number;
 };
 
 export type QuizRow = {
   id: string;
   code: string;
-  title: string | null;
-  host_id: string;
-  questions: QuizQuestion[];
+  title: string;
+  questions: unknown[];
+  status: string;
+  current_question_index: number;
+  phase: string;
+  phase_start_time: string | null;
   created_at: string;
+  host_id?: string;
+  read_seconds?: number;
+  answer_seconds?: number;
 };
-

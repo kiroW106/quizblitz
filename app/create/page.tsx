@@ -1,275 +1,211 @@
 "use client";
 
-import Background from "@/components/Background";
-import { Avatar, Button, Container, GlassCard, Input, Logo, ProgressBar } from "@/components/ui";
-import { make6DigitCode, getOrCreateLocalId } from "@/lib/game";
-import { getSupabaseBrowserClient, isSupabaseConfigured, type QuizQuestion } from "@/lib/supabase";
-import { motion } from "framer-motion";
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
-const MAX_SLIDES = 20;
+type Question = {
+  question: string;
+  options: [string, string, string, string];
+  correct: number;
+};
 
-function emptyQuestion(): QuizQuestion {
-  return { question: "", options: ["", "", "", ""], correctIndex: 0 };
-}
+const COLORS = ["#7c3aed", "#f59e0b", "#06b6d4", "#10b981"];
+const LABELS = ["A", "B", "C", "D"];
 
 export default function CreatePage() {
   const router = useRouter();
-  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
-
-  const [title, setTitle] = useState("My Quiz");
-  const [slides, setSlides] = useState<QuizQuestion[]>([emptyQuestion()]);
-  const [idx, setIdx] = useState(0);
+  const [title, setTitle] = useState("");
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [current, setCurrent] = useState<Question>({
+    question: "",
+    options: ["", "", "", ""],
+    correct: 0,
+  });
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
-  const current = slides[idx] ?? emptyQuestion();
-  const slideCount = slides.length;
+  const handleOptionChange = (index: number, value: string) => {
+    const updated = [...current.options] as [string, string, string, string];
+    updated[index] = value;
+    setCurrent({ ...current, options: updated });
+  };
 
-  function updateCurrent(partial: Partial<QuizQuestion>) {
-    setSlides((prev) => {
-      const next = [...prev];
-      const existing = next[idx] ?? emptyQuestion();
-      next[idx] = { ...existing, ...partial };
-      return next;
-    });
-  }
+  const addQuestion = () => {
+    if (!current.question.trim()) { setError("Please enter a question"); return; }
+    if (current.options.some((o) => !o.trim())) { setError("Please fill all 4 options"); return; }
+    if (questions.length >= 20) { setError("Maximum 20 questions allowed"); return; }
+    setError("");
+    setQuestions([...questions, current]);
+    setCurrent({ question: "", options: ["", "", "", ""], correct: 0 });
+  };
 
-  function updateOption(optIdx: 0 | 1 | 2 | 3, value: string) {
-    const options = [...current.options] as QuizQuestion["options"];
-    options[optIdx] = value;
-    updateCurrent({ options });
-  }
+  const removeQuestion = (index: number) => {
+    setQuestions(questions.filter((_, i) => i !== index));
+  };
 
-  function addSlide() {
-    if (slides.length >= MAX_SLIDES) return;
-    setSlides((prev) => [...prev, emptyQuestion()]);
-    setIdx(slides.length);
-  }
+  const generateCode = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  };
 
-  function validateAll(qs: QuizQuestion[]) {
-    const cleaned = qs
-      .map((q) => ({
-        ...q,
-        question: q.question.trim(),
-        options: q.options.map((o) => o.trim()) as QuizQuestion["options"],
-      }))
-      .filter((q) => q.question.length > 0);
-
-    if (cleaned.length === 0) return { ok: false as const, message: "Add at least 1 question." };
-    for (let i = 0; i < cleaned.length; i++) {
-      const q = cleaned[i];
-      if (q.options.some((o) => o.length === 0)) {
-        return { ok: false as const, message: `Slide ${i + 1}: fill all 4 options.` };
-      }
-    }
-    return { ok: true as const, questions: cleaned };
-  }
-
-  async function save() {
-    setError(null);
+  const saveQuiz = async () => {
+    if (!title.trim()) { setError("Please enter a quiz title"); return; }
+    if (questions.length === 0) { setError("Add at least one question"); return; }
     setSaving(true);
-    try {
-      if (!isSupabaseConfigured() || !supabase) {
-        setError("Supabase is not configured. Update .env.local and restart the dev server.");
-        return;
-      }
-      const hostId = getOrCreateLocalId("qb:hostId");
-      const result = validateAll(slides);
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-
-      let code = make6DigitCode();
-      // retry a couple times if collision
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const { error: insertErr } = await supabase.from("quizzes").insert({
-          code,
-          title: title.trim() || null,
-          host_id: hostId,
-          questions: result.questions,
-        });
-        if (!insertErr) break;
-        if (insertErr.message?.toLowerCase().includes("duplicate") || insertErr.code === "23505") {
-          code = make6DigitCode();
-          continue;
-        }
-        throw insertErr;
-      }
-
-      router.push(`/lobby/${code}`);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to save quiz.";
-      setError(msg);
-    } finally {
-      setSaving(false);
-    }
-  }
+    setError("");
+    const code = generateCode();
+    const { error: err } = await supabase.from("quizzes").insert({
+      code,
+      title: title.trim(),
+      questions,
+      status: "waiting",
+    });
+    setSaving(false);
+    if (err) { setError("Error saving quiz. Check Supabase connection."); return; }
+    localStorage.setItem(`host_${code}`, "true");
+    router.push(`/lobby/${code}`);
+  };
 
   return (
-    <main className="relative min-h-screen overflow-hidden">
-      <Background />
-      <Container>
-        <div className="relative py-10">
-          <div className="flex items-center justify-between gap-4">
-            <Logo size="sm" />
-            <div className="flex items-center gap-3 text-sm font-bold text-white/70">
-              <Avatar name="Host" />
-              <div className="hidden md:block">Build a quiz like slides</div>
+    <main style={{ minHeight: "100vh", background: "#0d0d1a", fontFamily: "Nunito, sans-serif", padding: "24px 16px" }}>
+
+      <div style={{ maxWidth: "760px", margin: "0 auto 28px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ background: "linear-gradient(145deg,#fbbf24,#f59e0b)", borderRadius: "10px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>⚡</div>
+          <span style={{ fontSize: "22px", fontWeight: 900, color: "white" }}>Quiz<span style={{ color: "#f59e0b" }}>Blitz</span></span>
+        </div>
+        <button onClick={() => router.push("/")} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", padding: "8px 16px", color: "rgba(255,255,255,0.6)", fontSize: "13px", fontWeight: 800, cursor: "pointer", fontFamily: "Nunito, sans-serif" }}>
+          ← Back Home
+        </button>
+      </div>
+
+      <div style={{ maxWidth: "760px", margin: "0 auto" }}>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px", fontWeight: 800, letterSpacing: "2px", textTransform: "uppercase" }}>Quiz Builder</span>
+          <span style={{ color: "#f59e0b", fontSize: "13px", fontWeight: 900 }}>{questions.length} / 20 questions</span>
+        </div>
+        <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "99px", height: "8px", overflow: "hidden", marginBottom: "24px" }}>
+          <div style={{ height: "100%", width: `${(questions.length / 20) * 100}%`, background: "linear-gradient(90deg,#7c3aed,#06b6d4,#f59e0b)", transition: "width 0.4s" }} />
+        </div>
+
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderLeft: "5px solid #f59e0b", borderRadius: "20px", padding: "24px", marginBottom: "16px" }}>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", fontWeight: 800, letterSpacing: "3px", textTransform: "uppercase", marginBottom: "12px" }}>📝 Quiz Title</div>
+          <input
+            type="text"
+            placeholder="e.g. Science Quiz for Class 8"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "12px", padding: "14px 16px", color: "white", fontSize: "16px", fontWeight: 700, fontFamily: "Nunito, sans-serif", outline: "none", boxSizing: "border-box" }}
+          />
+        </div>
+
+        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(124,58,237,0.3)", borderLeft: "5px solid #7c3aed", borderRadius: "20px", padding: "24px", marginBottom: "16px" }}>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", fontWeight: 800, letterSpacing: "3px", textTransform: "uppercase", marginBottom: "16px" }}>
+            ✏️ Question {questions.length + 1}
+          </div>
+
+          <input
+            type="text"
+            placeholder="Type your question here..."
+            value={current.question}
+            onChange={(e) => setCurrent({ ...current, question: e.target.value })}
+            style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "12px", padding: "14px 16px", color: "white", fontSize: "15px", fontWeight: 700, fontFamily: "Nunito, sans-serif", outline: "none", marginBottom: "16px", boxSizing: "border-box" }}
+          />
+
+          <div style={{ display: "grid", gap: "10px", marginBottom: "16px" }}>
+            {current.options.map((opt, i) => (
+              <div
+                key={i}
+                onClick={() => setCurrent({ ...current, correct: i })}
+                style={{
+                  display: "flex", alignItems: "center", gap: "12px",
+                  background: current.correct === i ? `${COLORS[i]}15` : "rgba(255,255,255,0.04)",
+                  border: current.correct === i ? `2px solid ${COLORS[i]}` : "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "12px", padding: "12px 14px", cursor: "pointer", transition: "all 0.2s"
+                }}
+              >
+                <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: current.correct === i ? COLORS[i] : "rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: 900, color: "white", flexShrink: 0, transition: "all 0.2s" }}>
+                  {current.correct === i ? "✓" : LABELS[i]}
+                </div>
+                <input
+                  type="text"
+                  placeholder={`Option ${LABELS[i]}...`}
+                  value={opt}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => handleOptionChange(i, e.target.value)}
+                  style={{ flex: 1, background: "transparent", border: "none", color: "white", fontSize: "14px", fontWeight: 700, fontFamily: "Nunito, sans-serif", outline: "none" }}
+                />
+                {current.correct === i && (
+                  <span style={{ color: COLORS[i], fontSize: "11px", fontWeight: 900, letterSpacing: "1px", flexShrink: 0 }}>CORRECT</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: "12px", fontWeight: 700, marginBottom: "16px" }}>
+            💡 Click on an option row to mark it as the correct answer
+          </div>
+
+          {error && (
+            <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "10px", padding: "10px 14px", color: "#ef4444", fontSize: "13px", fontWeight: 700, marginBottom: "12px" }}>
+              ⚠️ {error}
+            </div>
+          )}
+
+          <button
+            onClick={addQuestion}
+            style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)", color: "white", border: "none", borderRadius: "12px", padding: "13px 24px", fontSize: "14px", fontWeight: 800, cursor: "pointer", fontFamily: "Nunito, sans-serif" }}
+          >
+            + Add Question
+          </button>
+        </div>
+
+        {questions.length > 0 && (
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(6,182,212,0.25)", borderLeft: "5px solid #06b6d4", borderRadius: "20px", padding: "24px", marginBottom: "16px" }}>
+            <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", fontWeight: 800, letterSpacing: "3px", textTransform: "uppercase", marginBottom: "16px" }}>
+              ✅ Added Questions ({questions.length})
+            </div>
+            <div style={{ display: "grid", gap: "10px" }}>
+              {questions.map((q, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", background: "rgba(255,255,255,0.04)", borderRadius: "12px", padding: "12px 16px", border: "1px solid rgba(255,255,255,0.07)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: 0 }}>
+                    <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: "#06b6d4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: 900, color: "white", flexShrink: 0 }}>
+                      {i + 1}
+                    </div>
+                    <span style={{ color: "white", fontSize: "14px", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q.question}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                    <span style={{ color: "#10b981", fontSize: "11px", fontWeight: 800 }}>✓ {q.options[q.correct]}</span>
+                    <button onClick={() => removeQuestion(i)} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "8px", padding: "4px 10px", color: "#ef4444", fontSize: "12px", fontWeight: 800, cursor: "pointer", fontFamily: "Nunito, sans-serif" }}>✕</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
+        )}
 
-          <div className="mt-7 grid gap-5 lg:grid-cols-[1.3fr_0.7fr]">
-            <GlassCard accent="amber" className="p-6">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="text-xs font-extrabold uppercase tracking-[0.28em] text-white/55">
-                    Slide {idx + 1} of {MAX_SLIDES}
-                  </div>
-                  <div className="mt-1 text-2xl font-extrabold text-white">Quiz Builder</div>
-                </div>
-                <div className="w-56">
-                  <ProgressBar value={idx + 1} max={MAX_SLIDES} />
-                </div>
-              </div>
+        <button
+          onClick={saveQuiz}
+          disabled={saving || questions.length === 0}
+          style={{
+            width: "100%", padding: "18px", borderRadius: "16px", border: "none",
+            background: questions.length === 0 ? "rgba(255,255,255,0.06)" : "linear-gradient(135deg,#f59e0b,#f97316)",
+            color: questions.length === 0 ? "rgba(255,255,255,0.3)" : "white",
+            fontSize: "17px", fontWeight: 900, cursor: questions.length === 0 ? "not-allowed" : "pointer",
+            fontFamily: "Nunito, sans-serif", transition: "all 0.2s",
+            boxShadow: questions.length > 0 ? "0 8px 24px rgba(245,158,11,0.35)" : "none"
+          }}
+        >
+          {saving ? "⏳ Saving quiz..." : questions.length === 0 ? "Add questions to continue" : `🚀 Save Quiz & Get Join Code (${questions.length} questions)`}
+        </button>
 
-              <div className="mt-5 grid gap-4">
-                <div>
-                  <div className="mb-2 text-sm font-extrabold text-white/80">Quiz title</div>
-                  <Input value={title} onChange={setTitle} placeholder="e.g., Science Sprint" />
-                </div>
-
-                <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="grid gap-4"
-                >
-                  <div>
-                    <div className="mb-2 text-sm font-extrabold text-white/80">Question</div>
-                    <Input
-                      value={current.question}
-                      onChange={(v) => updateCurrent({ question: v })}
-                      placeholder="Type your question..."
-                    />
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {(["A", "B", "C", "D"] as const).map((label, optionIndex) => {
-                      const optIdx = optionIndex as 0 | 1 | 2 | 3;
-                      const isCorrect = current.correctIndex === optIdx;
-                      return (
-                        <div key={label} className="qb-glass rounded-2xl p-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="text-xs font-extrabold uppercase tracking-widest text-white/55">
-                              Option {label}
-                            </div>
-                            <label className="flex cursor-pointer items-center gap-2 text-xs font-extrabold text-white/70">
-                              <input
-                                type="radio"
-                                name="correct"
-                                checked={isCorrect}
-                                onChange={() => updateCurrent({ correctIndex: optIdx })}
-                                className="accent-qb-green"
-                              />
-                              Correct
-                            </label>
-                          </div>
-                          <div className="mt-2">
-                            <Input
-                              value={current.options[optIdx]}
-                              onChange={(v) => updateOption(optIdx, v)}
-                              placeholder={`Answer ${label}...`}
-                              className={isCorrect ? "ring-qb-green/60 focus:ring-qb-green" : ""}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-
-                {error ? (
-                  <div className="rounded-2xl bg-qb-red/15 p-4 text-sm font-bold text-qb-red ring-1 ring-qb-red/25">
-                    {error}
-                  </div>
-                ) : null}
-
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <Button
-                      tone="ghost"
-                      onClick={() => setIdx((v) => Math.max(0, v - 1))}
-                      disabled={idx === 0}
-                      className="h-12"
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      tone="ghost"
-                      onClick={() => setIdx((v) => Math.min(slides.length - 1, v + 1))}
-                      disabled={idx >= slides.length - 1}
-                      className="h-12"
-                    >
-                      Next
-                    </Button>
-                    <Button tone="ghost" onClick={addSlide} disabled={slides.length >= MAX_SLIDES} className="h-12">
-                      + New Slide
-                    </Button>
-                  </div>
-
-                  <Button tone="amber" onClick={save} disabled={saving} className="h-12">
-                    {saving ? "Saving..." : "Save & Get Code"}
-                  </Button>
-                </div>
-              </div>
-            </GlassCard>
-
-            <GlassCard accent="cyan" className="p-6">
-              <div className="text-xs font-extrabold uppercase tracking-[0.28em] text-white/55">Slide List</div>
-              <div className="mt-2 text-lg font-extrabold text-white">Your deck</div>
-              <div className="mt-4 grid gap-2">
-                {Array.from({ length: MAX_SLIDES }).map((_, i) => {
-                  const filled = (slides[i]?.question?.trim()?.length ?? 0) > 0;
-                  const active = i === idx;
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => setIdx(Math.min(i, slides.length - 1))}
-                      className={`qb-focus flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition ${
-                        active ? "bg-white/10 ring-1 ring-white/20" : "hover:bg-white/5 ring-1 ring-white/10"
-                      }`}
-                    >
-                      <div className="text-sm font-extrabold text-white">
-                        Slide {i + 1}
-                        <span className="ml-2 text-xs font-bold text-white/50">
-                          {filled ? "Ready" : i < slides.length ? "Draft" : "Empty"}
-                        </span>
-                      </div>
-                      <div
-                        className={`h-2.5 w-2.5 rounded-full ${
-                          filled ? "bg-qb-green" : i < slides.length ? "bg-qb-amber" : "bg-white/20"
-                        }`}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-5 text-sm font-semibold text-white/55">
-                Tip: keep questions short, options punchy — like KBC.
-              </div>
-              <div className="mt-3 text-sm font-semibold text-white/55">
-                Slides used: <span className="text-white/85">{slideCount}</span> / {MAX_SLIDES}
-              </div>
-            </GlassCard>
-          </div>
+        <div style={{ textAlign: "center", color: "rgba(255,255,255,0.2)", fontSize: "12px", fontWeight: 700, marginTop: "16px", marginBottom: "32px" }}>
+          After saving you'll get a 6-digit code to share with your players
         </div>
-      </Container>
+
+      </div>
     </main>
   );
 }
-

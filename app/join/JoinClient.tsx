@@ -2,13 +2,13 @@
 
 import Background from "@/components/Background";
 import { Button, Container, GlassCard, Input, Logo } from "@/components/ui";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { motion } from "framer-motion";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function clampDigit(s: string) {
-  const d = s.replace(/\D/g, "").slice(0, 1);
+  const d = s.replace(/[^A-Za-z0-9]/g, "").slice(0, 1).toUpperCase();
   return d;
 }
 
@@ -17,7 +17,7 @@ export default function JoinClient() {
   const params = useSearchParams();
   const mode = params.get("mode");
 
-  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+  
   const [digits, setDigits] = useState<string[]>(["", "", "", "", "", ""]);
   const [name, setName] = useState("");
   const [joining, setJoining] = useState(false);
@@ -32,10 +32,7 @@ export default function JoinClient() {
 
   async function join() {
     setError(null);
-    if (!isSupabaseConfigured() || !supabase) {
-      setError("Supabase is not configured. Update .env.local and restart the dev server.");
-      return;
-    }
+    
     if (code.length !== 6) {
       setError("Enter a 6-digit code.");
       return;
@@ -70,6 +67,7 @@ export default function JoinClient() {
       if (playerErr) throw playerErr;
 
       window.localStorage.setItem(`qb:playerId:${code}`, player.id);
+      window.sessionStorage.setItem(`qb:playerId:${code}`, player.id);
       router.push(`/lobby/${code}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to join.";
@@ -106,7 +104,7 @@ export default function JoinClient() {
                         inputsRef.current[i] = el;
                       }}
                       value={d}
-                      inputMode="numeric"
+                      inputMode="text"
                       autoComplete="one-time-code"
                       onChange={(e) => {
                         const next = [...digits];
